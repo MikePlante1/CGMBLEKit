@@ -49,9 +49,17 @@ public struct Glucose {
         self.status = TransmitterStatus(rawValue: status)
         self.activationDate = activationDate
 
-        sessionStartDate = activationDate.addingTimeInterval(TimeInterval(timeMessage.sessionStartTime))
-        sessionExpDate = activationDate.addingTimeInterval(TimeInterval(timeMessage.sessionStartTime) + (10*24*60*60))
-        readDate = activationDate.addingTimeInterval(TimeInterval(glucoseMessage.timestamp))
+        // Defensive check: If sessionStartTime is unreasonably large (>100 years in seconds),
+        // it's likely corrupted. Cap it at a reasonable maximum (e.g., 1 year = ~31.5M seconds).
+        // This prevents future-dated timestamps from propagating through the system.
+        // See: https://github.com/LoopKit/Loop/issues/2087
+        let maxReasonableOffset: UInt32 = 365 * 24 * 60 * 60  // 1 year in seconds
+        let sanitizedSessionStartTime = min(timeMessage.sessionStartTime, maxReasonableOffset)
+        let sanitizedTimestamp = min(glucoseMessage.timestamp, maxReasonableOffset)
+        
+        sessionStartDate = activationDate.addingTimeInterval(TimeInterval(sanitizedSessionStartTime))
+        sessionExpDate = activationDate.addingTimeInterval(TimeInterval(sanitizedSessionStartTime) + (10*24*60*60))
+        readDate = activationDate.addingTimeInterval(TimeInterval(sanitizedTimestamp))
         lastCalibration = calibrationMessage != nil ? Calibration(calibrationMessage: calibrationMessage!, activationDate: activationDate) : nil
     }
 

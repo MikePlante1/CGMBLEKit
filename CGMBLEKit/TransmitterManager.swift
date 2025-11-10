@@ -308,6 +308,20 @@ public class TransmitterManager: TransmitterDelegate {
             return
         }
 
+        // Validate glucose dates before processing
+        // Stopgap measure for the issue described in https://github.com/LoopKit/Loop/issues/2087
+        let now = Date()
+        if glucose.activationDate > now {
+            log.error("Future-dated activationDate detected: %{public}@. Rejecting glucose reading.", String(describing: glucose.activationDate))
+            updateDelegate(with: .error(TransmitterError.observationError("Future-dated activationDate detected")))
+            return
+        }
+        if glucose.sessionStartDate > now {
+            log.error("Future-dated sessionStartDate detected: %{public}@. Rejecting glucose reading.", String(describing: glucose.sessionStartDate))
+            updateDelegate(with: .error(TransmitterError.observationError("Future-dated sessionStartDate detected")))
+            return
+        }
+
         var events: [PersistedCgmEvent] = []
 
         if state.transmitterStartDate == nil {
@@ -384,7 +398,19 @@ public class TransmitterManager: TransmitterDelegate {
     }
 
     public func transmitter(_ transmitter: Transmitter, didReadBackfill glucose: [Glucose]) {
-        let samples = glucose.compactMap { (glucose) -> NewGlucoseSample? in
+        // Filter out glucose readings with future-dated activation or session dates
+        let now = Date()
+        let validGlucose = glucose.filter { glucose in
+            if glucose.activationDate > now || glucose.sessionStartDate > now {
+                log.error("Future-dated glucose in backfill detected - activation: %{public}@, session: %{public}@. Filtering out.", 
+                         String(describing: glucose.activationDate), 
+                         String(describing: glucose.sessionStartDate))
+                return false
+            }
+            return true
+        }
+        
+        let samples = validGlucose.compactMap { (glucose) -> NewGlucoseSample? in
             guard glucose != latestReading, glucose.state.hasReliableGlucose, let quantity = glucose.glucose else {
                 return nil
             }
